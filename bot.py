@@ -231,28 +231,84 @@ def support(message):
     bot.send_message(message.chat.id, "🎧 **Support Center**\n\nবটের যেকোনো সমস্যার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন। টেকনিক্যাল সাপোর্টের জন্য ডেভেলপারের সাথে যোগাযোগ করতে পারেন।", parse_mode="Markdown", reply_markup=markup)
 
 # --- 2FA Authenticator ---
-@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
-def ask_2fa_secret(message):
-    if not check_force_sub(message.chat.id): return start_message(message)
-    msg = bot.send_message(message.chat.id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**\n*( )*", parse_mode="Markdown", reply_markup=back_markup())
-    bot.register_next_step_handler(msg, generate_otp_code)
+def two_fa_markup():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("❌ Cancel"), KeyboardButton("🆕 New"))
+    return markup
 
-def generate_otp_code(message):
+@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
+def enter_2fa_menu(message):
+    user_id = message.chat.id
+    if not check_force_sub(user_id): return start_message(message)
+
+    user_data = get_user_data(user_id)
+    secret = user_data.get("2fa_secret")
+
+    if secret:
+        show_2fa_code(user_id, secret)
+        bot.send_message(user_id, "অ্যাকশন সিলেক্ট করুন:", reply_markup=two_fa_markup())
+    else:
+        msg = bot.send_message(user_id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**", parse_mode="Markdown", reply_markup=back_markup())
+        bot.register_next_step_handler(msg, process_new_2fa_secret)
+
+@bot.message_handler(func=lambda m: m.text == "🆕 New")
+def new_2fa_secret(message):
+    user_id = message.chat.id
+    db.reference(f'users/{user_id}/2fa_secret').delete()
+    msg = bot.send_message(user_id, "🛡️ **আপনার নতুন 2FA Setup/Secret Key দিন:**", parse_mode="Markdown", reply_markup=back_markup())
+    bot.register_next_step_handler(msg, process_new_2fa_secret)
+
+def process_new_2fa_secret(message):
     if message.text in ["🔙 Back to Main Menu", "❌ Cancel"]: return back_to_main(message)
     secret = message.text.strip().replace(" ", "")
     try:
         totp = pyotp.TOTP(secret)
-        otp_code = totp.now()
+        otp_code = totp.now() # Validate key
         
-        # 2FA তে শুধুমাত্র OTP
-        otp_msg = f"✅ **2FA Authenticator Code:**\n\nYour Verification Code : `{otp_code}`\n\n*(কোডটি কপি করতে ক্লিক করুন)*"
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("❌ Close", callback_data="close_msg"))
-        bot.reply_to(message, otp_msg, parse_mode="Markdown", reply_markup=markup)
-        
-        bot.send_message(message.chat.id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(message.chat.id))
+        update_user_data(message.chat.id, {"2fa_secret": secret})
+        show_2fa_code(message.chat.id, secret)
+        bot.send_message(message.chat.id, "অ্যাকশন সিলেক্ট করুন:", reply_markup=two_fa_markup())
     except Exception:
         bot.reply_to(message, "❌ **ভুল Secret Key!** আবার চেষ্টা করুন।", reply_markup=main_menu(message.chat.id))
+
+def show_2fa_code(chat_id, secret):
+    try:
+        totp = pyotp.TOTP(secret)
+        otp_code = totp.now()
+        otp_msg = f"🔐 **Your account OTP:**\n\n`{otp_code}`"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Code again", callback_data="refresh_2fa_otp"))
+        bot.send_message(chat_id, otp_msg, parse_mode="Markdown", reply_markup=markup)
+    except Exception:
+        bot.send_message(chat_id, "❌ Error generating OTP.")
+
+@bot.callback_query_handler(func=lambda call: call.data == 'refresh_2fa_otp')
+def refresh_2fa_callback(call):
+    user_id = call.message.chat.id
+    user_data = get_user_data(user_id)
+    secret = user_data.get("2fa_secret")
+    if not secret:
+        bot.answer_callback_query(call.id, "No secret key found! Please setup again.", show_alert=True)
+        return
+
+    try:
+        totp = pyotp.TOTP(secret)
+        otp_code = totp.now()
+        otp_msg = f"🔐 **Your account OTP:**\n\n`{otp_code}`"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Code again", callback_data="refresh_2fa_otp"))
+        
+        try:
+            bot.edit_message_text(otp_msg, user_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+            bot.answer_callback_query(call.id, "OTP Refreshed!")
+        except telebot.apihelper.ApiTelegramException as e:
+            if "message is not modified" in str(e).lower():
+                bot.answer_callback_query(call.id, "OTP is still the same! Wait a few seconds.", show_alert=False)
+            else:
+                bot.answer_callback_query(call.id, "Error updating message.", show_alert=False)
+    except Exception:
+        bot.answer_callback_query(call.id, "Error generating OTP.", show_alert=True)
+
 
 # --- Notification Builder ---
 def build_and_send_notification(chat_id, sender, subj, text, html_content=""):
