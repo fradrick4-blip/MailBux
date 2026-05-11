@@ -20,8 +20,8 @@ BOT_TOKEN = "8705131481:AAF8TnG9nx1U-BZz0nXYP_jxtSWNeSQPbYY"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # অ্যাডমিন ও ডেভেলপার সেপারেশন
-ADMIN_ID = 5854417621 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
-ADMIN_USERNAME = "CEO_HRIDOY" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
+ADMIN_ID = 123456789 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
+ADMIN_USERNAME = "YourAdminUsername" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
 DEVELOPER_ID = 6670461311 # আপনার (Walid) সুপার-অ্যাডমিন ID
 SUPPORT_LINK = "https://t.me/Ad_Walid" 
 
@@ -110,13 +110,23 @@ def check_force_sub(user_id):
         return False
     except: return True 
 
+# --- Insta Simulation Auto Sender ---
+def simulate_insta_mail(chat_id, email):
+    # ৭ সেকেন্ড পর অটোমেটিক ইনস্টাগ্রাম কোড পাঠাবে
+    time.sleep(7)
+    code = str(random.randint(100000, 999999))
+    sender = "no-reply@mail.instagram.com"
+    subj = f"{code} is your Instagram code"
+    text = f"Hi, Someone tried to sign up for an Instagram account with {email}. If it wasn't you, please ignore this message."
+    build_and_send_notification(chat_id, sender, subj, text, "")
+
 # --- UI Menus ---
 def main_menu(user_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("✉️ Generate primium Mail"), KeyboardButton("📥 Inbox"))
-    markup.add(KeyboardButton("🎛️ Dashboard"), KeyboardButton("👤 Profile"))
-    markup.add(KeyboardButton("🌐 Server"), KeyboardButton("🔐 2FA Authenticator"))
-    markup.add(KeyboardButton("🎧 Support"))
+    markup.add(KeyboardButton("✨ Generate Mail"), KeyboardButton("📸 Auto Insta Mail"))
+    markup.add(KeyboardButton("📥 Inbox"), KeyboardButton("🎛️ Dashboard"))
+    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🌐 Server"))
+    markup.add(KeyboardButton("🔐 2FA Authenticator"), KeyboardButton("🎧 Support"))
     if user_id in [ADMIN_ID, DEVELOPER_ID]:
         markup.add(KeyboardButton("⚙️ Admin Panel"))
     return markup
@@ -139,7 +149,7 @@ def start_message(message):
         user_data = get_user_data(user_id)
         
         if user_data.get("banned"):
-            bot.reply_to(message, "❌ **Account Banned!**\nআপনি এই বটটি আর ব্যবহার করতে পারবেন গ্যা।", parse_mode="Markdown")
+            bot.reply_to(message, "❌ **Account Banned!**\nআপনি এই বটটি আর ব্যবহার করতে পারবেন না।", parse_mode="Markdown")
             return
             
         # Save User Info for TXT List
@@ -226,87 +236,32 @@ def profile(message):
 def support(message):
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(InlineKeyboardButton("👨‍💻 Developer Walid", url=SUPPORT_LINK))
-    markup.add(InlineKeyboardButton("💬 Contact Bot Admin Hridoy", url=f"https://t.me/{ADMIN_USERNAME}"))
-    bot.send_message(message.chat.id, "🎧 **Support Center**\n\nবটের যেকোনো সমস্যার জন্য অ্যাডমিন CEO-HRIDOY ভাইয়ের সাথে যোগাযোগ করুন। টেকনিক্যাল সাপোর্টের জন্য ডেভেলপারের সাথে যোগাযোগ করতে পারেন।", parse_mode="Markdown", reply_markup=markup)
+    markup.add(InlineKeyboardButton("💬 Contact Bot Admin", url=f"https://t.me/{ADMIN_USERNAME}"))
+    bot.send_message(message.chat.id, "🎧 **Support Center**\n\nবটের যেকোনো সমস্যার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন। টেকনিক্যাল সাপোর্টের জন্য ডেভেলপারের সাথে যোগাযোগ করতে পারেন।", parse_mode="Markdown", reply_markup=markup)
 
-# ==========================================
-# --- 2FA Authenticator (UPDATED SECTION) ---
-# ==========================================
+# --- 2FA Authenticator ---
+@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
+def ask_2fa_secret(message):
+    if not check_force_sub(message.chat.id): return start_message(message)
+    msg = bot.send_message(message.chat.id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**\n*( )*", parse_mode="Markdown", reply_markup=back_markup())
+    bot.register_next_step_handler(msg, generate_otp_code)
 
-def get_2fa_inline_markup():
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🔄 Code again", callback_data="refresh_2fa"))
-    return markup
-
-def get_2fa_reply_markup():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("🆕 New"), KeyboardButton("❌ Cancel"))
-    return markup
-
-def show_active_2fa(chat_id, secret, edit_msg_id=None):
+def generate_otp_code(message):
+    if message.text in ["🔙 Back to Main Menu", "❌ Cancel"]: return back_to_main(message)
+    secret = message.text.strip().replace(" ", "")
     try:
         totp = pyotp.TOTP(secret)
         otp_code = totp.now()
         
-        text = f"🔐 **Your account OTP:**\n\n`{otp_code}`\n\n*(কোডটি কপি করতে ক্লিক করুন)*"
+        # 2FA তে শুধুমাত্র OTP
+        otp_msg = f"✅ **2FA Authenticator Code:**\n\nYour Verification Code : `{otp_code}`\n\n*(কোডটি কপি করতে ক্লিক করুন)*"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("❌ Close", callback_data="close_msg"))
+        bot.reply_to(message, otp_msg, parse_mode="Markdown", reply_markup=markup)
         
-        if edit_msg_id:
-            bot.edit_message_text(text, chat_id, edit_msg_id, parse_mode="Markdown", reply_markup=get_2fa_inline_markup())
-        else:
-            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=get_2fa_inline_markup())
-            bot.send_message(chat_id, "নিচের মেনু থেকে অপশন নির্বাচন করুন:", reply_markup=get_2fa_reply_markup())
+        bot.send_message(message.chat.id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(message.chat.id))
     except Exception:
-        bot.send_message(chat_id, "❌ **ভুল Secret Key বা কোড জেনারেট করতে সমস্যা হয়েছে!**", reply_markup=main_menu(chat_id))
-        db.reference(f'users/{chat_id}/2fa_secret').delete()
-
-@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
-def ask_2fa_secret(message):
-    if not check_force_sub(message.chat.id): return start_message(message)
-    user_data = get_user_data(message.chat.id)
-    active_secret = user_data.get("2fa_secret")
-    
-    if active_secret:
-        # যদি আগে থেকেই সিক্রেট সেভ থাকে, সরাসরি OTP দেখাবে
-        show_active_2fa(message.chat.id, active_secret)
-    else:
-        # নতুন হলে সিক্রেট কোড চাইবে
-        msg = bot.send_message(message.chat.id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**\n*(ক্যান্সেল করতে নিচে ❌ বাটনে ক্লিক করুন)*", parse_mode="Markdown", reply_markup=back_markup())
-        bot.register_next_step_handler(msg, process_new_2fa_secret)
-
-def process_new_2fa_secret(message):
-    if message.text in ["🔙 Back to Main Menu", "❌ Cancel"]: return back_to_main(message)
-    secret = message.text.strip().replace(" ", "")
-    
-    try:
-        # চেক করে দেখছি কোড ঠিক আছে কিনা
-        totp = pyotp.TOTP(secret)
-        totp.now() 
-        
-        # ডাটাবেসে সেভ করা হচ্ছে যেন ব্যাক করলেও থাকে
-        update_user_data(message.chat.id, {"2fa_secret": secret})
-        show_active_2fa(message.chat.id, secret)
-        
-    except Exception:
-        msg = bot.reply_to(message, "❌ **ভুল Secret Key!** দয়া করে সঠিক Key দিন:", reply_markup=back_markup())
-        bot.register_next_step_handler(msg, process_new_2fa_secret)
-
-@bot.callback_query_handler(func=lambda call: call.data == "refresh_2fa")
-def refresh_2fa_callback(call):
-    user_data = get_user_data(call.message.chat.id)
-    secret = user_data.get("2fa_secret")
-    if secret:
-        show_active_2fa(call.message.chat.id, secret, edit_msg_id=call.message.message_id)
-        bot.answer_callback_query(call.id, "✅ Code Updated!")
-    else:
-        bot.answer_callback_query(call.id, "❌ No active secret found! Please setup again.", show_alert=True)
-
-@bot.message_handler(func=lambda m: m.text == "🆕 New")
-def new_2fa_secret_handler(message):
-    # ডাটাবেস থেকে পুরনো কোড মুছে নতুন করে চাইবে
-    db.reference(f'users/{message.chat.id}/2fa_secret').delete()
-    msg = bot.send_message(message.chat.id, "🛡️ **নতুন 2FA Setup/Secret Key দিন:**\n*(ক্যান্সেল করতে নিচে ❌ বাটনে ক্লিক করুন)*", parse_mode="Markdown", reply_markup=back_markup())
-    bot.register_next_step_handler(msg, process_new_2fa_secret)
-
+        bot.reply_to(message, "❌ **ভুল Secret Key!** আবার চেষ্টা করুন।", reply_markup=main_menu(message.chat.id))
 
 # --- Notification Builder ---
 def build_and_send_notification(chat_id, sender, subj, text, html_content=""):
@@ -341,8 +296,8 @@ def refresh_inbox_callback(call):
     bot.answer_callback_query(call.id, "🔄 Checking for new mails...")
     check_inbox(call.message)
 
-# --- Mail Generation ---
-@bot.message_handler(func=lambda m: m.text == "✉️ Generate primium Mail")
+# --- Mail Generation (Normal & Auto Insta) ---
+@bot.message_handler(func=lambda m: m.text in ["✨ Generate Mail", "📸 Auto Insta Mail"])
 def generate_mail(message):
     user_id = message.chat.id
     if not check_force_sub(user_id): return start_message(message)
@@ -350,16 +305,18 @@ def generate_mail(message):
     user_data = get_user_data(user_id)
     if user_data.get("banned"): return
     
+    is_auto_insta = (message.text == "📸 Auto Insta Mail")
     server = user_data.get("server", "mail.td")
     loading_msg = bot.send_message(user_id, "⏳ `[■■□□□□□□□□] 20%`\nConnecting to Secure API...", parse_mode="Markdown")
     
     success = False
     error_log = ""
+    generated_email = ""
     
     if server == "mail.td":
         keys = db.reference('settings/mail_td_keys').get() or []
         if not keys:
-            bot.edit_message_text("❌ **কোনো mail পাওয়া যায়নি!**\nঅ্যাডমিন এর সাথে যোগাযোগ করুন।", user_id, loading_msg.message_id, parse_mode="Markdown")
+            bot.edit_message_text("❌ **কোনো API Key পাওয়া যায়নি!**\nঅ্যাডমিনকে Pannel থেকে Mail.td Key অ্যাড করতে বলুন।", user_id, loading_msg.message_id, parse_mode="Markdown")
             return
             
         for key in keys:
@@ -369,23 +326,23 @@ def generate_mail(message):
                 domains = client.accounts.list_domains()
                 domain = domains[0].domain if hasattr(domains[0], 'domain') else domains[0]
                 
-                email = f"{generate_random_string()}@{domain}"
+                generated_email = f"{generate_random_string()}@{domain}"
                 password = generate_random_string(12)
-                account = client.accounts.create(email, password=password)
+                account = client.accounts.create(generated_email, password=password)
                 
                 bot.edit_message_text("⏳ `[■■■■■■■■■□] 90%`\nActivating Live Sync Inbox...", user_id, loading_msg.message_id, parse_mode="Markdown")
                 
                 mails = user_data.get("mails", {})
                 if not isinstance(mails, dict): mails = {}
-                mails[email.replace('.', ',')] = {"token": key, "account_id": account.id, "server": "mail.td"}
-                update_user_data(user_id, {"mails": mails, "active_mail": email})
+                mails[generated_email.replace('.', ',')] = {"token": key, "account_id": account.id, "server": "mail.td"}
+                update_user_data(user_id, {"mails": mails, "active_mail": generated_email})
                 
                 # Update Stats
                 increment_stat("total_generated")
                 increment_stat("total_generated_mail_td")
                 
                 bot.delete_message(user_id, loading_msg.message_id)
-                msg = f"🎉 **Mail Generated!**\n\n📧 **Your Address:**\n👉 `{email}` 👈\n\n🛰️ **Server:** `{server}` API\n🟢 **Status:** Live Sync Active\n_• Listening for incoming mails..._"
+                msg = f"🎉 **Mail Generated!**\n\n📧 **Your Address:**\n👉 `{generated_email}` 👈\n\n🛰️ **Server:** `{server}` API\n🟢 **Status:** Live Sync Active\n_• Listening for incoming mails..._"
                 bot.send_message(user_id, msg, parse_mode="Markdown")
                 success = True
                 break
@@ -399,9 +356,9 @@ def generate_mail(message):
             domain_res = requests.get('https://api.mail.gw/domains', headers=headers, timeout=10).json()
             domain = domain_res['hydra:member'][0]['domain'] if 'hydra:member' in domain_res else domain_res[0]['domain']
             
-            email = f"{generate_random_string()}@{domain}"
+            generated_email = f"{generate_random_string()}@{domain}"
             password = generate_random_string(12)
-            acc_data = {"address": email, "password": password}
+            acc_data = {"address": generated_email, "password": password}
             
             requests.post('https://api.mail.gw/accounts', json=acc_data, headers=headers, timeout=10)
             
@@ -410,21 +367,24 @@ def generate_mail(message):
             
             mails = user_data.get("mails", {})
             if not isinstance(mails, dict): mails = {}
-            mails[email.replace('.', ',')] = {"token": token_res['token'], "server": "mail.gw"}
-            update_user_data(user_id, {"mails": mails, "active_mail": email})
+            mails[generated_email.replace('.', ',')] = {"token": token_res['token'], "server": "mail.gw"}
+            update_user_data(user_id, {"mails": mails, "active_mail": generated_email})
             
             # Update Stats
             increment_stat("total_generated")
             increment_stat("total_generated_mail_gw")
             
             bot.delete_message(user_id, loading_msg.message_id)
-            msg = f"🎉 **Mail Generated!**\n\n📧 **Your Address:**\n👉 `{email}` 👈\n\n🛰️ **Server:** `{server}` API\n🟢 **Status:** Live Sync Active\n_• Listening for incoming mails..._"
+            msg = f"🎉 **Mail Generated!**\n\n📧 **Your Address:**\n👉 `{generated_email}` 👈\n\n🛰️ **Server:** `{server}` API\n🟢 **Status:** Live Sync Active\n_• Listening for incoming mails..._"
             bot.send_message(user_id, msg, parse_mode="Markdown")
             success = True
         except Exception as e:
             error_log += f"\n• Mail.gw Error: {str(e)[:40]}"
 
-    if not success:
+    if success and is_auto_insta:
+        Thread(target=simulate_insta_mail, args=(user_id, generated_email)).start()
+        
+    elif not success:
         err_msg = f"❌ **সার্ভার সাময়িক ডাউন আছে!**\n\n🔍 **Error Log:**`{error_log}`\n\nদয়া করে অন্য সার্ভার ট্রাই করুন অথবা অ্যাডমিনকে জানান।"
         bot.edit_message_text(err_msg, user_id, loading_msg.message_id, parse_mode="Markdown")
 
@@ -439,7 +399,7 @@ def check_inbox(message):
     mails = user_data.get("mails", {})
     
     if not active or active.replace('.', ',') not in mails:
-        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে '✉️ Generate primium Mail' এ ক্লিক করুন।", parse_mode="Markdown")
+        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে '✨ Generate Mail' এ ক্লিক করুন।", parse_mode="Markdown")
         return
 
     loading_msg = bot.send_message(user_id, "🔄 **Scanning Live Inbox...**\n_Checking for latest OTPs..._", parse_mode="Markdown")
