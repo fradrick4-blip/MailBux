@@ -21,8 +21,8 @@ BOT_TOKEN = "8705131481:AAF8TnG9nx1U-BZz0nXYP_jxtSWNeSQPbYY"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # অ্যাডমিন ও ডেভেলপার সেপারেশন
-ADMIN_ID = 123456789 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
-ADMIN_USERNAME = "YourAdminUsername" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
+ADMIN_ID = 5854417621 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
+ADMIN_USERNAME = "CEO_HRIDOY" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
 DEVELOPER_ID = 6670461311 # আপনার (Walid) সুপার-অ্যাডমিন ID
 SUPPORT_LINK = "https://t.me/Ad_Walid" 
 
