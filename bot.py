@@ -114,10 +114,12 @@ def check_force_sub(user_id):
 # --- UI Menus ---
 def main_menu(user_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("✨ Generate Mail"), KeyboardButton("📥 Inbox"))
-    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("🎛️ Dashboard"))
-    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🌐 Server"))
-    markup.add(KeyboardButton("🔐 2FA Authenticator"), KeyboardButton("🎧 Support"))
+    markup.add(KeyboardButton("✉️ Generate primium Mail"), KeyboardButton("📥 Inbox"))
+    # Update: Swapped buttons as requested
+    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("🔐 2FA Authenticator"))
+    markup.add(KeyboardButton("🎛️ Dashboard"), KeyboardButton("🌐 Server"))
+    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🎧 Support"))
+    
     if user_id in [ADMIN_ID, DEVELOPER_ID]:
         markup.add(KeyboardButton("⚙️ Admin Panel"))
     return markup
@@ -140,7 +142,7 @@ def start_message(message):
         user_data = get_user_data(user_id)
         
         if user_data.get("banned"):
-            bot.reply_to(message, "❌ **Account Banned!**\nআপনি এই বটটি আর ব্যবহার করতে পারবেন না।", parse_mode="Markdown")
+            bot.reply_to(message, "❌ **Account Banned!**\nআপনি এই বটটি আর ব্যবহার করতে পারবেন বন্দর।", parse_mode="Markdown")
             return
             
         # Save User Info for TXT List
