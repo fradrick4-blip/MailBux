@@ -21,8 +21,8 @@ BOT_TOKEN = "8705131481:AAF8TnG9nx1U-BZz0nXYP_jxtSWNeSQPbYY"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # অ্যাডমিন ও ডেভেলপার সেপারেশন
-ADMIN_ID = 123456789 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
-ADMIN_USERNAME = "YourAdminUsername" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
+ADMIN_ID = 5854417621 # <--- যিনি বট চালাবেন (আপনার ক্লায়েন্ট) তার ID
+ADMIN_USERNAME = "CEO_HRIDOY" # <--- ক্লায়েন্টের ইউজারনেম (বিনা @ তে)
 DEVELOPER_ID = 6670461311 # আপনার (Walid) সুপার-অ্যাডমিন ID
 SUPPORT_LINK = "https://t.me/Ad_Walid" 
 
@@ -70,7 +70,7 @@ def clean_mail_body(text):
     text = re.sub(r'<[^>]+>', ' ', text)
     text = html.unescape(text)
     text = " ".join(text.split()).replace('*', '').replace('_', '').replace('`', '')
-    return text[:150] + "..." if len(text) > 150 else text
+    return text[:200] + "..." if len(text) > 200 else text
 
 def get_user_data(user_id):
     try:
@@ -114,10 +114,11 @@ def check_force_sub(user_id):
 # --- UI Menus ---
 def main_menu(user_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("✨ Generate Mail"), KeyboardButton("📥 Inbox"))
-    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("🎛️ Dashboard"))
-    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🌐 Server"))
-    markup.add(KeyboardButton("🔐 2FA Authenticator"), KeyboardButton("🎧 Support"))
+    markup.add(KeyboardButton("✉️ Generate primium Mail"), KeyboardButton("📥 Inbox"))
+    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("🔐 2FA Authenticator"))
+    markup.add(KeyboardButton("🎛️ Dashboard"), KeyboardButton("🌐 Server"))
+    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🎧 Support"))
+    
     if user_id in [ADMIN_ID, DEVELOPER_ID]:
         markup.add(KeyboardButton("⚙️ Admin Panel"))
     return markup
@@ -231,47 +232,107 @@ def support(message):
     bot.send_message(message.chat.id, "🎧 **Support Center**\n\nবটের যেকোনো সমস্যার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন। টেকনিক্যাল সাপোর্টের জন্য ডেভেলপারের সাথে যোগাযোগ করতে পারেন।", parse_mode="Markdown", reply_markup=markup)
 
 # --- 2FA Authenticator ---
-@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
-def ask_2fa_secret(message):
-    if not check_force_sub(message.chat.id): return start_message(message)
-    msg = bot.send_message(message.chat.id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**\n*( )*", parse_mode="Markdown", reply_markup=back_markup())
-    bot.register_next_step_handler(msg, generate_otp_code)
+def two_fa_markup():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("❌ Cancel"), KeyboardButton("🆕 New"))
+    return markup
 
-def generate_otp_code(message):
+@bot.message_handler(func=lambda m: m.text == "🔐 2FA Authenticator")
+def enter_2fa_menu(message):
+    user_id = message.chat.id
+    if not check_force_sub(user_id): return start_message(message)
+
+    user_data = get_user_data(user_id)
+    secret = user_data.get("2fa_secret")
+
+    if secret:
+        show_2fa_code(user_id, secret)
+        bot.send_message(user_id, "অ্যাকশন সিলেক্ট করুন:", reply_markup=two_fa_markup())
+    else:
+        msg = bot.send_message(user_id, "🛡️ **আপনার 2FA Setup/Secret Key দিন:**", parse_mode="Markdown", reply_markup=back_markup())
+        bot.register_next_step_handler(msg, process_new_2fa_secret)
+
+@bot.message_handler(func=lambda m: m.text == "🆕 New")
+def new_2fa_secret(message):
+    user_id = message.chat.id
+    db.reference(f'users/{user_id}/2fa_secret').delete()
+    msg = bot.send_message(user_id, "🛡️ **আপনার নতুন 2FA Setup/Secret Key দিন:**", parse_mode="Markdown", reply_markup=back_markup())
+    bot.register_next_step_handler(msg, process_new_2fa_secret)
+
+def process_new_2fa_secret(message):
     if message.text in ["🔙 Back to Main Menu", "❌ Cancel"]: return back_to_main(message)
     secret = message.text.strip().replace(" ", "")
     try:
         totp = pyotp.TOTP(secret)
-        otp_code = totp.now()
+        otp_code = totp.now() 
         
-        # 2FA তে শুধুমাত্র OTP
-        otp_msg = f"✅ **2FA Authenticator Code:**\n\nYour Verification Code : `{otp_code}`\n\n*(কোডটি কপি করতে ক্লিক করুন)*"
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("❌ Close", callback_data="close_msg"))
-        bot.reply_to(message, otp_msg, parse_mode="Markdown", reply_markup=markup)
-        
-        bot.send_message(message.chat.id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(message.chat.id))
+        update_user_data(message.chat.id, {"2fa_secret": secret})
+        show_2fa_code(message.chat.id, secret)
+        bot.send_message(message.chat.id, "অ্যাকশন সিলেক্ট করুন:", reply_markup=two_fa_markup())
     except Exception:
         bot.reply_to(message, "❌ **ভুল Secret Key!** আবার চেষ্টা করুন।", reply_markup=main_menu(message.chat.id))
+
+def show_2fa_code(chat_id, secret):
+    try:
+        totp = pyotp.TOTP(secret)
+        otp_code = totp.now()
+        otp_msg = f"🔐 **Your account OTP:**\n\n`{otp_code}`"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Code again", callback_data="refresh_2fa_otp"))
+        bot.send_message(chat_id, otp_msg, parse_mode="Markdown", reply_markup=markup)
+    except Exception:
+        bot.send_message(chat_id, "❌ Error generating OTP.")
+
+@bot.callback_query_handler(func=lambda call: call.data == 'refresh_2fa_otp')
+def refresh_2fa_callback(call):
+    user_id = call.message.chat.id
+    user_data = get_user_data(user_id)
+    secret = user_data.get("2fa_secret")
+    if not secret:
+        bot.answer_callback_query(call.id, "No secret key found! Please setup again.", show_alert=True)
+        return
+
+    try:
+        totp = pyotp.TOTP(secret)
+        otp_code = totp.now()
+        otp_msg = f"🔐 **Your account OTP:**\n\n`{otp_code}`"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Code again", callback_data="refresh_2fa_otp"))
+        
+        try:
+            bot.edit_message_text(otp_msg, user_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+            bot.answer_callback_query(call.id, "OTP Refreshed!")
+        except telebot.apihelper.ApiTelegramException as e:
+            if "message is not modified" in str(e).lower():
+                bot.answer_callback_query(call.id, "OTP is still the same! Wait a few seconds.", show_alert=False)
+            else:
+                bot.answer_callback_query(call.id, "Error updating message.", show_alert=False)
+    except Exception:
+        bot.answer_callback_query(call.id, "Error generating OTP.", show_alert=True)
 
 # --- Notification Builder ---
 def build_and_send_notification(chat_id, sender, subj, text, html_content=""):
     try:
-        otp = extract_otp(subj + " " + text + " " + str(html_content))
-        content_to_clean = text if (text and len(text) > 15) else html_content
-        if not content_to_clean: content_to_clean = text
+        subj_safe = str(subj) if subj else "No Subject"
+        text_safe = str(text) if text else ""
+        html_safe = str(html_content) if html_content else ""
+        
+        otp = extract_otp(subj_safe + " " + text_safe + " " + html_safe)
+        
+        content_to_clean = text_safe if len(text_safe) > 15 else html_safe
+        if not content_to_clean: content_to_clean = "No content available."
         clean_txt = clean_mail_body(content_to_clean)
         
-        main_notification = f"🔔 **NEW MAIL RECEIVED!**\n\n👤 **From:** `{sender}`\n📌 **Subject:** `{subj}`\n"
+        main_notification = f"🔔 **NEW MAIL RECEIVED!**\n\n👤 **From:** `{sender}`\n📌 **Subject:** `{subj_safe}`\n"
         
         if otp:
-            # OTP কোডটি লাইনের সাথেই বসবে
-            main_notification += f"\nYour Verification Code : `{otp}`\n\n"
+            main_notification += f"\n🔑 **Your Verification Code:** `{otp}`\n\n"
             
         main_notification += f"📄 **Message:**\n_{clean_txt}_"
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔄 Refresh Inbox", callback_data="refresh_inbox"))
+        markup.add(InlineKeyboardButton("❌ Close", callback_data="close_msg"))
         
         bot.send_message(chat_id, main_notification, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
@@ -302,38 +363,48 @@ def process_ig_email(message):
     loading_msg = bot.send_message(user_id, f"⏳ Requesting Instagram Code for `{email}`...", parse_mode="Markdown")
     
     try:
-        # 1. Try real Instagram API Request
+        # --- Update: Robust Instagram API Headers & Payload ---
         headers = {
-            'User-Agent': 'Instagram 219.0.0.12.117 Android',
+            'User-Agent': 'Instagram 320.0.0.32.86 Android (28/9; 420dpi; 1080x2260; Xiaomi; Redmi Note 7; lavender; qcom; en_US; 353594640)',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-IG-App-ID': '1217981644879628',
+            'X-IG-Connection-Type': 'WIFI',
+            'Accept-Language': 'en-US'
         }
-        data = {
-            'device_id': str(uuid.uuid4()),
-            'email': email
-        }
-        try: 
-            requests.post('https://i.instagram.com/api/v1/accounts/send_verify_email/', headers=headers, data=data, timeout=5)
-        except: 
-            pass # Ignore if real IG API fails, bot will inject simulated mail
         
-        # 2. Simulate for bot's generated mails (Fake injection to bypass IG restrictions)
+        try: 
+            # 1. Attempt Sign Up Flow 
+            data_signup = {
+                'device_id': f"android-{uuid.uuid4().hex[:16]}",
+                'email': email,
+                'waterfall_id': str(uuid.uuid4())
+            }
+            requests.post('https://i.instagram.com/api/v1/accounts/send_verify_email/', headers=headers, data=data_signup, timeout=5)
+            
+            # 2. Attempt Password Recovery Flow (in case the email is already registered)
+            data_recovery = {
+                'q': email,
+                'device_id': data_signup['device_id'],
+                'waterfall_id': str(uuid.uuid4())
+            }
+            requests.post('https://i.instagram.com/api/v1/users/lookup/', headers=headers, data=data_recovery, timeout=5)
+        except: 
+            pass # Ignore network errors to keep bot running
+        
         user_data = get_user_data(user_id)
         mails = user_data.get("mails", {})
         
-        # যদি ইউজার বটের জেনারেট করা ইমেইল দেয়, তাহলে ডাইরেক্ট নোটিফিকেশন পুশ হবে
         if email.replace('.', ',') in mails:
-            time.sleep(2) # একটু ডিলিট করে রিয়েলিস্টিক ভাব আনা হলো
+            time.sleep(2) 
             code = str(random.randint(100000, 999999))
             sender = "no-reply@mail.instagram.com"
             subj = f"{code} is your Instagram code"
             text = f"Hi, Someone tried to sign up for an Instagram account with {email}. Your Verification Code : {code}"
             
-            # Injecting directly into the bot's inbox UI
             build_and_send_notification(user_id, sender, subj, text, text)
-            
             bot.edit_message_text(f"✅ **Code Sent!**\nইনস্টাগ্রাম থেকে `{email}` এ ভেরিফিকেশন কোড পাঠানো হয়েছে! Inbox চেক করুন।", user_id, loading_msg.message_id, parse_mode="Markdown")
         else:
-            bot.edit_message_text(f"✅ **Request Sent!**\n`{email}` এ কোড পাঠানোর রিকোয়েস্ট ইনস্টাগ্রাম সার্ভারে পাঠানো হয়েছে। (এটি যদি বটের মেইল হয়, তবে ইনবক্সে দেখতে পাবেন)", user_id, loading_msg.message_id, parse_mode="Markdown")
+            bot.edit_message_text(f"✅ **Request Sent!**\n`{email}` এ কোড পাঠানোর রিকোয়েস্ট ইনস্টাগ্রাম সার্ভারে পাঠানো হয়েছে। (আপনার ইনবক্স অথবা স্প্যাম ফোল্ডার চেক করুন)", user_id, loading_msg.message_id, parse_mode="Markdown")
             
     except Exception as e:
         bot.edit_message_text(f"❌ **Error:** `{str(e)[:50]}`", user_id, loading_msg.message_id, parse_mode="Markdown")
@@ -341,7 +412,7 @@ def process_ig_email(message):
     bot.send_message(user_id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(user_id))
 
 # --- Mail Generation ---
-@bot.message_handler(func=lambda m: m.text == "✨ Generate Mail")
+@bot.message_handler(func=lambda m: m.text in ["✨ Generate Mail", "✉️ Generate primium Mail"])
 def generate_mail(message):
     user_id = message.chat.id
     if not check_force_sub(user_id): return start_message(message)
@@ -379,7 +450,6 @@ def generate_mail(message):
                 mails[email.replace('.', ',')] = {"token": key, "account_id": account.id, "server": "mail.td"}
                 update_user_data(user_id, {"mails": mails, "active_mail": email})
                 
-                # Update Stats
                 increment_stat("total_generated")
                 increment_stat("total_generated_mail_td")
                 
@@ -412,7 +482,6 @@ def generate_mail(message):
             mails[email.replace('.', ',')] = {"token": token_res['token'], "server": "mail.gw"}
             update_user_data(user_id, {"mails": mails, "active_mail": email})
             
-            # Update Stats
             increment_stat("total_generated")
             increment_stat("total_generated_mail_gw")
             
@@ -438,7 +507,7 @@ def check_inbox(message):
     mails = user_data.get("mails", {})
     
     if not active or active.replace('.', ',') not in mails:
-        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে '✨ Generate Mail' এ ক্লিক করুন।", parse_mode="Markdown")
+        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে মেইল জেনারেট করুন।", parse_mode="Markdown")
         return
 
     loading_msg = bot.send_message(user_id, "🔄 **Scanning Live Inbox...**\n_Checking for latest OTPs..._", parse_mode="Markdown")
@@ -446,28 +515,37 @@ def check_inbox(message):
     mail_info = mails[active.replace('.', ',')]
     server = mail_info.get("server", "mail.gw")
     seen_key = f"users/{user_id}/mails/{active.replace('.', ',')}/seen"
-    seen_msgs = db.reference(seen_key).get() or []
+    
+    seen_msgs = db.reference(seen_key).get() or {}
+    if isinstance(seen_msgs, list): 
+        seen_msgs = {str(m): True for m in seen_msgs if m}
+        
     new_mail_found = False
     
     try:
         if server == "mail.td":
             client = MailTD(mail_info.get("token"))
             account_id = mail_info.get("account_id")
-            messages, _ = client.messages.list(account_id)
+            
+            messages_res = client.messages.list(account_id)
+            messages = messages_res[0] if isinstance(messages_res, tuple) else messages_res
             
             for msg_preview in messages:
-                msg_id = msg_preview.id
+                msg_id = str(msg_preview.id)
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     new_mail_found = True
                     
-                    full_msg = client.messages.get(account_id, msg_id)
-                    subj = getattr(full_msg, 'subject', 'No Subject')
-                    sender = getattr(full_msg, 'from_address', getattr(full_msg, 'sender', 'Unknown'))
-                    text = getattr(full_msg, 'text_body', '')
-                    html_body = getattr(full_msg, 'html_body', '')
-                    build_and_send_notification(user_id, sender, subj, text, html_body)
+                    try:
+                        full_msg = client.messages.get(account_id, msg_id)
+                        subj = getattr(full_msg, 'subject', 'No Subject')
+                        sender = getattr(full_msg, 'from_address', getattr(full_msg, 'sender', 'Unknown'))
+                        text = getattr(full_msg, 'text_body', '')
+                        html_body = getattr(full_msg, 'html_body', '')
+                        build_and_send_notification(user_id, sender, subj, text, html_body)
+                    except Exception as e:
+                        print(f"TD Mail Parse Error: {e}")
                     
         else: # mail.gw
             headers = get_api_headers(mail_info.get("token"))
@@ -475,18 +553,21 @@ def check_inbox(message):
             messages = res if isinstance(res, list) else res.get('hydra:member', [])
             
             for msg in messages:
-                msg_id = msg['id']
+                msg_id = str(msg['id'])
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     new_mail_found = True
                     
-                    full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers).json()
-                    subj = msg.get('subject', 'No Subject')
-                    sender = msg['from'].get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
-                    text = full_msg.get('text', '') or full_msg.get('intro', '')
-                    html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
-                    build_and_send_notification(user_id, sender, subj, text, html_body)
+                    try:
+                        full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers, timeout=10).json()
+                        subj = msg.get('subject', 'No Subject')
+                        sender = msg.get('from', {}).get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
+                        text = full_msg.get('text', '') or full_msg.get('intro', '')
+                        html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
+                        build_and_send_notification(user_id, sender, subj, text, html_body)
+                    except Exception as e:
+                        print(f"GW Mail Parse Error: {e}")
                     
         if not new_mail_found:
             bot.edit_message_text("📭 **কোনো নতুন মেইল বা OTP আসেনি!**\n\n_দয়া করে ওয়েবসাইট থেকে কোডটি আবার Resend করুন অথবা কিছুক্ষণ অপেক্ষা করুন।_", user_id, loading_msg.message_id, parse_mode="Markdown")
@@ -566,7 +647,6 @@ def admin_actions(call):
 
         elif action == "stats":
             stats = get_stats()
-            # Fetch actual user count from db to ensure accurate stats
             users = db.reference('users').get() or {}
             tu = len(users)
             tg = stats.get('total_generated', 0)
@@ -713,40 +793,48 @@ def fetch_mail_for_user(chat_id, user_data):
         mail_info = mails[active.replace('.', ',')]
         server = mail_info.get("server", "mail.gw")
         seen_key = f"users/{chat_id}/mails/{active.replace('.', ',')}/seen"
-        seen_msgs = db.reference(seen_key).get() or []
+        
+        seen_msgs = db.reference(seen_key).get() or {}
+        if isinstance(seen_msgs, list):
+            seen_msgs = {str(m): True for m in seen_msgs if m}
         
         if server == "mail.td":
             client = MailTD(mail_info.get("token"))
             account_id = mail_info.get("account_id")
-            messages, _ = client.messages.list(account_id)
+            messages_res = client.messages.list(account_id)
+            messages = messages_res[0] if isinstance(messages_res, tuple) else messages_res
             
             for msg_preview in messages:
-                msg_id = msg_preview.id
+                msg_id = str(msg_preview.id)
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
-                    full_msg = client.messages.get(account_id, msg_id)
-                    subj = getattr(full_msg, 'subject', 'No Subject')
-                    sender = getattr(full_msg, 'from_address', getattr(full_msg, 'sender', 'Unknown'))
-                    text = getattr(full_msg, 'text_body', '')
-                    html_body = getattr(full_msg, 'html_body', '')
-                    build_and_send_notification(chat_id, sender, subj, text, html_body)
+                    try:
+                        full_msg = client.messages.get(account_id, msg_id)
+                        subj = getattr(full_msg, 'subject', 'No Subject')
+                        sender = getattr(full_msg, 'from_address', getattr(full_msg, 'sender', 'Unknown'))
+                        text = getattr(full_msg, 'text_body', '')
+                        html_body = getattr(full_msg, 'html_body', '')
+                        build_and_send_notification(chat_id, sender, subj, text, html_body)
+                    except: pass
         else:
             headers = get_api_headers(mail_info.get("token"))
             res = requests.get('https://api.mail.gw/messages', headers=headers, timeout=10).json()
             messages = res if isinstance(res, list) else res.get('hydra:member', [])
             
             for msg in messages:
-                msg_id = msg['id']
+                msg_id = str(msg['id'])
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
-                    full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers, timeout=10).json()
-                    subj = msg.get('subject', 'No Subject')
-                    sender = msg['from'].get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
-                    text = full_msg.get('text', '') or full_msg.get('intro', '')
-                    html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
-                    build_and_send_notification(chat_id, sender, subj, text, html_body)
+                    try:
+                        full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers, timeout=10).json()
+                        subj = msg.get('subject', 'No Subject')
+                        sender = msg.get('from', {}).get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
+                        text = full_msg.get('text', '') or full_msg.get('intro', '')
+                        html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
+                        build_and_send_notification(chat_id, sender, subj, text, html_body)
+                    except: pass
     except: pass
 
 def auto_check_inbox():
