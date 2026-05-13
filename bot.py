@@ -313,7 +313,6 @@ def refresh_2fa_callback(call):
 # --- Notification Builder ---
 def build_and_send_notification(chat_id, sender, subj, text, html_content=""):
     try:
-        # NoneType Error Fix: Ensure variables are parsed as strings
         subj_safe = str(subj) if subj else "No Subject"
         text_safe = str(text) if text else ""
         html_safe = str(html_content) if html_content else ""
@@ -364,18 +363,33 @@ def process_ig_email(message):
     loading_msg = bot.send_message(user_id, f"⏳ Requesting Instagram Code for `{email}`...", parse_mode="Markdown")
     
     try:
+        # --- Update: Robust Instagram API Headers & Payload ---
         headers = {
-            'User-Agent': 'Instagram 219.0.0.12.117 Android',
+            'User-Agent': 'Instagram 320.0.0.32.86 Android (28/9; 420dpi; 1080x2260; Xiaomi; Redmi Note 7; lavender; qcom; en_US; 353594640)',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-IG-App-ID': '1217981644879628',
+            'X-IG-Connection-Type': 'WIFI',
+            'Accept-Language': 'en-US'
         }
-        data = {
-            'device_id': str(uuid.uuid4()),
-            'email': email
-        }
+        
         try: 
-            requests.post('https://i.instagram.com/api/v1/accounts/send_verify_email/', headers=headers, data=data, timeout=5)
+            # 1. Attempt Sign Up Flow 
+            data_signup = {
+                'device_id': f"android-{uuid.uuid4().hex[:16]}",
+                'email': email,
+                'waterfall_id': str(uuid.uuid4())
+            }
+            requests.post('https://i.instagram.com/api/v1/accounts/send_verify_email/', headers=headers, data=data_signup, timeout=5)
+            
+            # 2. Attempt Password Recovery Flow (in case the email is already registered)
+            data_recovery = {
+                'q': email,
+                'device_id': data_signup['device_id'],
+                'waterfall_id': str(uuid.uuid4())
+            }
+            requests.post('https://i.instagram.com/api/v1/users/lookup/', headers=headers, data=data_recovery, timeout=5)
         except: 
-            pass 
+            pass # Ignore network errors to keep bot running
         
         user_data = get_user_data(user_id)
         mails = user_data.get("mails", {})
@@ -390,7 +404,7 @@ def process_ig_email(message):
             build_and_send_notification(user_id, sender, subj, text, text)
             bot.edit_message_text(f"✅ **Code Sent!**\nইনস্টাগ্রাম থেকে `{email}` এ ভেরিফিকেশন কোড পাঠানো হয়েছে! Inbox চেক করুন।", user_id, loading_msg.message_id, parse_mode="Markdown")
         else:
-            bot.edit_message_text(f"✅ **Request Sent!**\n`{email}` এ কোড পাঠানোর রিকোয়েস্ট ইনস্টাগ্রাম সার্ভারে পাঠানো হয়েছে। (এটি যদি বটের মেইল হয়, তবে ইনবক্সে দেখতে পাবেন)", user_id, loading_msg.message_id, parse_mode="Markdown")
+            bot.edit_message_text(f"✅ **Request Sent!**\n`{email}` এ কোড পাঠানোর রিকোয়েস্ট ইনস্টাগ্রাম সার্ভারে পাঠানো হয়েছে। (আপনার ইনবক্স অথবা স্প্যাম ফোল্ডার চেক করুন)", user_id, loading_msg.message_id, parse_mode="Markdown")
             
     except Exception as e:
         bot.edit_message_text(f"❌ **Error:** `{str(e)[:50]}`", user_id, loading_msg.message_id, parse_mode="Markdown")
@@ -398,7 +412,6 @@ def process_ig_email(message):
     bot.send_message(user_id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(user_id))
 
 # --- Mail Generation ---
-# Fixed trigger logic to match the button string exactly
 @bot.message_handler(func=lambda m: m.text in ["✨ Generate Mail", "✉️ Generate primium Mail"])
 def generate_mail(message):
     user_id = message.chat.id
@@ -503,7 +516,6 @@ def check_inbox(message):
     server = mail_info.get("server", "mail.gw")
     seen_key = f"users/{user_id}/mails/{active.replace('.', ',')}/seen"
     
-    # List to Dict Conversion Patch for DB Robustness
     seen_msgs = db.reference(seen_key).get() or {}
     if isinstance(seen_msgs, list): 
         seen_msgs = {str(m): True for m in seen_msgs if m}
@@ -515,7 +527,6 @@ def check_inbox(message):
             client = MailTD(mail_info.get("token"))
             account_id = mail_info.get("account_id")
             
-            # Safe parsing incase the API wrapper updates its return structure
             messages_res = client.messages.list(account_id)
             messages = messages_res[0] if isinstance(messages_res, tuple) else messages_res
             
@@ -783,7 +794,6 @@ def fetch_mail_for_user(chat_id, user_data):
         server = mail_info.get("server", "mail.gw")
         seen_key = f"users/{chat_id}/mails/{active.replace('.', ',')}/seen"
         
-        # Robust DB Read Format Matcher
         seen_msgs = db.reference(seen_key).get() or {}
         if isinstance(seen_msgs, list):
             seen_msgs = {str(m): True for m in seen_msgs if m}
