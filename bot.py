@@ -62,13 +62,15 @@ def extract_otp(text):
 def clean_mail_body(text):
     if not text: return "No content"
     text = str(text)
+    # অপ্রয়োজনীয় লিংক [http...] বা রেগুলার লিংক রিমুভ করা
     text = re.sub(r'\[http[^\]]+\]', '', text)
     text = re.sub(r'http[s]?://\S+', '', text)
+    
     text = re.sub(r'<(style|script)[^>]*>.*?</\1>', '', text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r'<[^>]+>', ' ', text)
     text = html.unescape(text)
     text = " ".join(text.split()).replace('*', '').replace('_', '').replace('`', '')
-    return text[:150] + "..." if len(text) > 150 else text
+    return text[:200] + "..." if len(text) > 200 else text
 
 def get_user_data(user_id):
     try:
@@ -112,11 +114,10 @@ def check_force_sub(user_id):
 # --- UI Menus ---
 def main_menu(user_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("✨ Generate Premium Mail"), KeyboardButton("📥 Inbox"))
-    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("📘 Send FB Code"))
-    markup.add(KeyboardButton("🔐 2FA Authenticator"), KeyboardButton("🎛️ Dashboard"))
-    markup.add(KeyboardButton("🌐 Server"), KeyboardButton("👤 Profile"))
-    markup.add(KeyboardButton("🎧 Support"))
+    markup.add(KeyboardButton("✉️ Generate primium Mail"), KeyboardButton("📥 Inbox"))
+    markup.add(KeyboardButton("📸 Send IG Code"), KeyboardButton("🔐 2FA Authenticator"))
+    markup.add(KeyboardButton("🎛️ Dashboard"), KeyboardButton("🌐 Server"))
+    markup.add(KeyboardButton("👤 Profile"), KeyboardButton("🎧 Support"))
     
     if user_id in [ADMIN_ID, DEVELOPER_ID]:
         markup.add(KeyboardButton("⚙️ Admin Panel"))
@@ -143,6 +144,7 @@ def start_message(message):
             bot.reply_to(message, "❌ **Account Banned!**\nআপনি এই বটটি আর ব্যবহার করতে পারবেন না।", parse_mode="Markdown")
             return
             
+        # Save User Info for TXT List
         name = message.from_user.first_name or "Unknown"
         username = message.from_user.username or "N/A"
         db.reference(f'users/{user_id}/id').set(user_id) 
@@ -262,7 +264,8 @@ def process_new_2fa_secret(message):
     secret = message.text.strip().replace(" ", "")
     try:
         totp = pyotp.TOTP(secret)
-        otp_code = totp.now()
+        otp_code = totp.now() 
+        
         update_user_data(message.chat.id, {"2fa_secret": secret})
         show_2fa_code(message.chat.id, secret)
         bot.send_message(message.chat.id, "অ্যাকশন সিলেক্ট করুন:", reply_markup=two_fa_markup())
@@ -307,24 +310,30 @@ def refresh_2fa_callback(call):
     except Exception:
         bot.answer_callback_query(call.id, "Error generating OTP.", show_alert=True)
 
-
 # --- Notification Builder ---
 def build_and_send_notification(chat_id, sender, subj, text, html_content=""):
     try:
-        otp = extract_otp(subj + " " + text + " " + str(html_content))
-        content_to_clean = text if (text and len(text) > 15) else html_content
-        if not content_to_clean: content_to_clean = text
+        # NoneType Error Fix: Ensure variables are parsed as strings
+        subj_safe = str(subj) if subj else "No Subject"
+        text_safe = str(text) if text else ""
+        html_safe = str(html_content) if html_content else ""
+        
+        otp = extract_otp(subj_safe + " " + text_safe + " " + html_safe)
+        
+        content_to_clean = text_safe if len(text_safe) > 15 else html_safe
+        if not content_to_clean: content_to_clean = "No content available."
         clean_txt = clean_mail_body(content_to_clean)
         
-        main_notification = f"🔔 **NEW MAIL RECEIVED!**\n\n👤 **From:** `{sender}`\n📌 **Subject:** `{subj}`\n"
+        main_notification = f"🔔 **NEW MAIL RECEIVED!**\n\n👤 **From:** `{sender}`\n📌 **Subject:** `{subj_safe}`\n"
         
         if otp:
-            main_notification += f"\nYour Verification Code : `{otp}`\n\n"
+            main_notification += f"\n🔑 **Your Verification Code:** `{otp}`\n\n"
             
         main_notification += f"📄 **Message:**\n_{clean_txt}_"
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔄 Refresh Inbox", callback_data="refresh_inbox"))
+        markup.add(InlineKeyboardButton("❌ Close", callback_data="close_msg"))
         
         bot.send_message(chat_id, main_notification, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
@@ -355,11 +364,24 @@ def process_ig_email(message):
     loading_msg = bot.send_message(user_id, f"⏳ Requesting Instagram Code for `{email}`...", parse_mode="Markdown")
     
     try:
+        headers = {
+            'User-Agent': 'Instagram 219.0.0.12.117 Android',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        }
+        data = {
+            'device_id': str(uuid.uuid4()),
+            'email': email
+        }
+        try: 
+            requests.post('https://i.instagram.com/api/v1/accounts/send_verify_email/', headers=headers, data=data, timeout=5)
+        except: 
+            pass 
+        
         user_data = get_user_data(user_id)
         mails = user_data.get("mails", {})
         
         if email.replace('.', ',') in mails:
-            time.sleep(2)
+            time.sleep(2) 
             code = str(random.randint(100000, 999999))
             sender = "no-reply@mail.instagram.com"
             subj = f"{code} is your Instagram code"
@@ -375,43 +397,9 @@ def process_ig_email(message):
     
     bot.send_message(user_id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(user_id))
 
-# --- FB Code Sender ---
-@bot.message_handler(func=lambda m: m.text == "📘 Send FB Code")
-def ask_fb_email(message):
-    if not check_force_sub(message.chat.id): return start_message(message)
-    msg = bot.send_message(message.chat.id, "📘 **ফেইসবুক ভেরিফিকেশন কোড পাঠাতে ইমেইল অ্যাড্রেসটি দিন:**", parse_mode="Markdown", reply_markup=back_markup())
-    bot.register_next_step_handler(msg, process_fb_email)
-
-def process_fb_email(message):
-    if message.text in ["🔙 Back to Main Menu", "❌ Cancel"]: return back_to_main(message)
-    email = message.text.strip()
-    user_id = message.chat.id
-    
-    loading_msg = bot.send_message(user_id, f"⏳ Requesting Facebook Code for `{email}`...", parse_mode="Markdown")
-    
-    try:
-        user_data = get_user_data(user_id)
-        mails = user_data.get("mails", {})
-        
-        if email.replace('.', ',') in mails:
-            time.sleep(2)
-            code = str(random.randint(100000, 999999))
-            sender = "security@facebookmail.com"
-            subj = f"{code} is your Facebook account recovery code"
-            text = f"Hi,\nWe received a request to reset your Facebook password.\n\nEnter the following password reset code: {code}\n\nAlternatively, you can change your password directly."
-            
-            build_and_send_notification(user_id, sender, subj, text, text)
-            bot.edit_message_text(f"✅ **Code Sent!**\nফেইসবুক থেকে `{email}` এ ভেরিফিকেশন কোড পাঠানো হয়েছে! Inbox চেক করুন।", user_id, loading_msg.message_id, parse_mode="Markdown")
-        else:
-            bot.edit_message_text(f"✅ **Request Sent!**\n`{email}` এ কোড পাঠানোর রিকোয়েস্ট ফেইসবুক সার্ভারে পাঠানো হয়েছে। (এটি যদি বটের মেইল হয়, তবে ইনবক্সে দেখতে পাবেন)", user_id, loading_msg.message_id, parse_mode="Markdown")
-            
-    except Exception as e:
-        bot.edit_message_text(f"❌ **Error:** `{str(e)[:50]}`", user_id, loading_msg.message_id, parse_mode="Markdown")
-    
-    bot.send_message(user_id, "মেইন মেনু থেকে যেকোনো সার্ভিস সিলেক্ট করুন:", reply_markup=main_menu(user_id))
-
 # --- Mail Generation ---
-@bot.message_handler(func=lambda m: m.text == "✨ Generate Premium Mail")
+# Fixed trigger logic to match the button string exactly
+@bot.message_handler(func=lambda m: m.text in ["✨ Generate Mail", "✉️ Generate primium Mail"])
 def generate_mail(message):
     user_id = message.chat.id
     if not check_force_sub(user_id): return start_message(message)
@@ -449,7 +437,6 @@ def generate_mail(message):
                 mails[email.replace('.', ',')] = {"token": key, "account_id": account.id, "server": "mail.td"}
                 update_user_data(user_id, {"mails": mails, "active_mail": email})
                 
-                # Update Stats
                 increment_stat("total_generated")
                 increment_stat("total_generated_mail_td")
                 
@@ -482,7 +469,6 @@ def generate_mail(message):
             mails[email.replace('.', ',')] = {"token": token_res['token'], "server": "mail.gw"}
             update_user_data(user_id, {"mails": mails, "active_mail": email})
             
-            # Update Stats
             increment_stat("total_generated")
             increment_stat("total_generated_mail_gw")
             
@@ -508,7 +494,7 @@ def check_inbox(message):
     mails = user_data.get("mails", {})
     
     if not active or active.replace('.', ',') not in mails:
-        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে '✨ Generate Premium Mail' এ ক্লিক করুন।", parse_mode="Markdown")
+        bot.send_message(user_id, "⚠️ **আপনার কোনো অ্যাক্টিভ ইমেইল নেই!**\nআগে মেইল জেনারেট করুন।", parse_mode="Markdown")
         return
 
     loading_msg = bot.send_message(user_id, "🔄 **Scanning Live Inbox...**\n_Checking for latest OTPs..._", parse_mode="Markdown")
@@ -517,8 +503,11 @@ def check_inbox(message):
     server = mail_info.get("server", "mail.gw")
     seen_key = f"users/{user_id}/mails/{active.replace('.', ',')}/seen"
     
-    # Bug Fix: Ensure seen_msgs is strictly a list
-    seen_msgs = list(db.reference(seen_key).get() or [])
+    # List to Dict Conversion Patch for DB Robustness
+    seen_msgs = db.reference(seen_key).get() or {}
+    if isinstance(seen_msgs, list): 
+        seen_msgs = {str(m): True for m in seen_msgs if m}
+        
     new_mail_found = False
     
     try:
@@ -526,13 +515,14 @@ def check_inbox(message):
             client = MailTD(mail_info.get("token"))
             account_id = mail_info.get("account_id")
             
-            td_msgs = client.messages.list(account_id)
-            messages = td_msgs[0] if isinstance(td_msgs, tuple) else td_msgs
+            # Safe parsing incase the API wrapper updates its return structure
+            messages_res = client.messages.list(account_id)
+            messages = messages_res[0] if isinstance(messages_res, tuple) else messages_res
             
             for msg_preview in messages:
-                msg_id = str(msg_preview.id) # Bug fix: Force String Type
+                msg_id = str(msg_preview.id)
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     new_mail_found = True
                     
@@ -543,7 +533,8 @@ def check_inbox(message):
                         text = getattr(full_msg, 'text_body', '')
                         html_body = getattr(full_msg, 'html_body', '')
                         build_and_send_notification(user_id, sender, subj, text, html_body)
-                    except: pass
+                    except Exception as e:
+                        print(f"TD Mail Parse Error: {e}")
                     
         else: # mail.gw
             headers = get_api_headers(mail_info.get("token"))
@@ -551,20 +542,21 @@ def check_inbox(message):
             messages = res if isinstance(res, list) else res.get('hydra:member', [])
             
             for msg in messages:
-                msg_id = str(msg['id']) # Bug fix: Force String Type
+                msg_id = str(msg['id'])
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     new_mail_found = True
                     
                     try:
                         full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers, timeout=10).json()
                         subj = msg.get('subject', 'No Subject')
-                        sender = msg['from'].get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
+                        sender = msg.get('from', {}).get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
                         text = full_msg.get('text', '') or full_msg.get('intro', '')
                         html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
                         build_and_send_notification(user_id, sender, subj, text, html_body)
-                    except: pass
+                    except Exception as e:
+                        print(f"GW Mail Parse Error: {e}")
                     
         if not new_mail_found:
             bot.edit_message_text("📭 **কোনো নতুন মেইল বা OTP আসেনি!**\n\n_দয়া করে ওয়েবসাইট থেকে কোডটি আবার Resend করুন অথবা কিছুক্ষণ অপেক্ষা করুন।_", user_id, loading_msg.message_id, parse_mode="Markdown")
@@ -791,19 +783,21 @@ def fetch_mail_for_user(chat_id, user_data):
         server = mail_info.get("server", "mail.gw")
         seen_key = f"users/{chat_id}/mails/{active.replace('.', ',')}/seen"
         
-        # Bug Fix: Enforce seen_msgs to be explicitly list type
-        seen_msgs = list(db.reference(seen_key).get() or [])
+        # Robust DB Read Format Matcher
+        seen_msgs = db.reference(seen_key).get() or {}
+        if isinstance(seen_msgs, list):
+            seen_msgs = {str(m): True for m in seen_msgs if m}
         
         if server == "mail.td":
             client = MailTD(mail_info.get("token"))
             account_id = mail_info.get("account_id")
-            td_msgs = client.messages.list(account_id)
-            messages = td_msgs[0] if isinstance(td_msgs, tuple) else td_msgs
+            messages_res = client.messages.list(account_id)
+            messages = messages_res[0] if isinstance(messages_res, tuple) else messages_res
             
             for msg_preview in messages:
-                msg_id = str(msg_preview.id) # Bug fix: Force String Type
+                msg_id = str(msg_preview.id)
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     try:
                         full_msg = client.messages.get(account_id, msg_id)
@@ -819,14 +813,14 @@ def fetch_mail_for_user(chat_id, user_data):
             messages = res if isinstance(res, list) else res.get('hydra:member', [])
             
             for msg in messages:
-                msg_id = str(msg['id']) # Bug fix: Force String Type
+                msg_id = str(msg['id'])
                 if msg_id not in seen_msgs:
-                    seen_msgs.append(msg_id)
+                    seen_msgs[msg_id] = True
                     db.reference(seen_key).set(seen_msgs)
                     try:
                         full_msg = requests.get(f'https://api.mail.gw/messages/{msg_id}', headers=headers, timeout=10).json()
                         subj = msg.get('subject', 'No Subject')
-                        sender = msg['from'].get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
+                        sender = msg.get('from', {}).get('address', 'Unknown') if isinstance(msg.get('from'), dict) else msg.get('from', 'Unknown')
                         text = full_msg.get('text', '') or full_msg.get('intro', '')
                         html_body = full_msg.get('html', '') or full_msg.get('htmlBody', '')
                         build_and_send_notification(chat_id, sender, subj, text, html_body)
@@ -864,4 +858,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Bot Polling Crashed: {e}. Restarting in 3 seconds...")
             time.sleep(3)
-
